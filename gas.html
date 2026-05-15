@@ -162,11 +162,11 @@
   let stationMarkers = [];
 
   // ── HELPERS ──────────────────────────────────────────────
-  function formatPrice(money) {
+function formatPrice(money) {
     if (!money) return null;
-    const val = (money.units || 0) + (money.nanos || 0) / 1e9;
+    const val = parseInt(money.units || 0, 10) + (money.nanos || 0) / 1e9;
     return val > 0 ? '$' + val.toFixed(2) : null;
-  }
+}
 
   function getPrice(station, fuelType) {
     return (station.fuelOptions?.fuelPrices || []).find(fp => fp.type === fuelType);
