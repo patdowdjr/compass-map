@@ -22,28 +22,6 @@
     }
     #header strong { color: #B6470B; font-size: 15px; }
 
-    #fuel-toggle {
-      margin-top: 8px;
-      display: flex;
-      gap: 6px;
-    }
-    .fuel-btn {
-      padding: 4px 12px;
-      border-radius: 5px;
-      border: 1px solid #334155;
-      background: #1e293b;
-      color: #94a3b8;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .fuel-btn.active {
-      background: #16a34a;
-      border-color: #16a34a;
-      color: #fff;
-    }
-
     #legend {
       position: absolute;
       top: 16px; right: 16px;
@@ -111,10 +89,6 @@
 <div id="header">
   <strong>COMPASS Gas Prices</strong><br/>
   <span id="subtitle">Searching nearby stations...</span>
-  <div id="fuel-toggle">
-    <button class="fuel-btn active" onclick="switchFuel('REGULAR_UNLEADED', this)">Regular</button>
-    <button class="fuel-btn" onclick="switchFuel('DIESEL', this)">Diesel</button>
-  </div>
 </div>
 
 <div id="map"></div>
@@ -134,7 +108,7 @@
 
 <div id="loading">
   <div class="spinner"></div>
-  <p>Fetching live gas prices...</p>
+  <p>Fetching gas prices...</p>
 </div>
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
@@ -142,34 +116,33 @@
   // ── CONFIG ───────────────────────────────────────────────
   mapboxgl.accessToken = 'pk.eyJ1IjoicGF0ZG93ZGpyIiwiYSI6ImNtb2FobHU4czA2bjcycHB5dnhqajE4aTEifQ.DXxMU7g3t74zQsn0FRlsug';
   const GOOGLE_API_KEY  = 'AIzaSyCbvMDYLl0PjQJNZTAk7MdYsAlUc9evreY';
-  const SEARCH_RADIUS   = 8047; // 5 miles in meters
+  const SEARCH_RADIUS   = 8047;
   const MAX_RESULTS     = 10;
 
   // ── PARSE URL PARAMS ─────────────────────────────────────
   const p = new URLSearchParams(window.location.search);
   let jobs = [];
   try { jobs = JSON.parse(decodeURIComponent(p.get('jobs') || '[]')); } catch(e) {}
-  let activeFuel = p.get('fuel') === 'diesel' ? 'DIESEL' : 'REGULAR_UNLEADED';
-
-  // Set active button on load
-  if (activeFuel === 'DIESEL') {
-    document.querySelectorAll('.fuel-btn')[0].classList.remove('active');
-    document.querySelectorAll('.fuel-btn')[1].classList.add('active');
-  }
 
   // ── STATE ────────────────────────────────────────────────
   let allStations = [];
   let stationMarkers = [];
 
   // ── HELPERS ──────────────────────────────────────────────
-function formatPrice(money) {
+  function formatPrice(money) {
     if (!money) return null;
     const val = parseInt(money.units || 0, 10) + (money.nanos || 0) / 1e9;
     return val > 0 ? '$' + val.toFixed(2) : null;
-}
+  }
 
-  function getPrice(station, fuelType) {
-    return (station.fuelOptions?.fuelPrices || []).find(fp => fp.type === fuelType);
+  function getPinPrice(station) {
+    const priority = ['REGULAR_UNLEADED', 'MIDGRADE', 'PREMIUM', 'DIESEL'];
+    for (const type of priority) {
+      const fp = (station.fuelOptions?.fuelPrices || []).find(p => p.type === type);
+      const price = formatPrice(fp?.price);
+      if (price) return price;
+    }
+    return null;
   }
 
   function getUpdateLabel(fuelPrices) {
@@ -190,7 +163,7 @@ function formatPrice(money) {
       { key: 'DIESEL',           label: 'Diesel' }
     ];
     return types.map(t => {
-      const fp = getPrice(station, t.key);
+      const fp = (station.fuelOptions?.fuelPrices || []).find(x => x.type === t.key);
       const price = formatPrice(fp?.price);
       if (!price) return '';
       return `<div style="display:flex;justify-content:space-between;gap:20px;margin-top:4px;">
@@ -228,9 +201,8 @@ function formatPrice(money) {
   }
 
   function createStationMarker(station) {
-    const fp = getPrice(station, activeFuel);
-    const priceText = formatPrice(fp?.price);
-    const hasPrice = !!priceText;
+    const pinPrice = getPinPrice(station);
+    const hasPrice = !!pinPrice;
     const bg = hasPrice ? '#16a34a' : '#64748b';
 
     const el = document.createElement('div');
@@ -239,7 +211,7 @@ function formatPrice(money) {
       padding:3px 8px; color:white; font-size:11px; font-weight:700;
       box-shadow:0 2px 6px rgba(0,0,0,0.4); cursor:pointer; white-space:nowrap;
     `;
-    el.textContent = priceText || (station.displayName?.text?.split(' ')[0] || 'Station');
+    el.textContent = pinPrice || (station.displayName?.text?.split(' ')[0] || 'Station');
 
     const name    = station.displayName?.text || 'Gas Station';
     const address = station.formattedAddress || '';
@@ -258,7 +230,9 @@ function formatPrice(money) {
       </div>
     `);
 
-    return new mapboxgl.Marker(el).setLngLat([station.location.longitude, station.location.latitude]).setPopup(popup);
+    return new mapboxgl.Marker(el)
+      .setLngLat([station.location.longitude, station.location.latitude])
+      .setPopup(popup);
   }
 
   // ── GOOGLE PLACES API ────────────────────────────────────
@@ -282,7 +256,7 @@ function formatPrice(money) {
     return data.places || [];
   }
 
-  // ── PLOT / REPLOT ────────────────────────────────────────
+  // ── PLOT ─────────────────────────────────────────────────
   function plotStations() {
     stationMarkers.forEach(m => m.remove());
     stationMarkers = [];
@@ -292,13 +266,6 @@ function formatPrice(money) {
       m.addTo(map);
       stationMarkers.push(m);
     });
-  }
-
-  function switchFuel(type, btn) {
-    activeFuel = type;
-    document.querySelectorAll('.fuel-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    plotStations();
   }
 
   // ── MAIN ─────────────────────────────────────────────────
@@ -317,22 +284,18 @@ function formatPrice(money) {
       return;
     }
 
-    // Plot job markers and collect bounds
     const bounds = new mapboxgl.LngLatBounds();
     jobs.forEach((job, i) => {
       createJobMarker(job, i).addTo(map);
       bounds.extend([job.lon, job.lat]);
     });
 
-    // Deduplicate job locations before fetching
     const uniqueJobs = jobs.filter((j, i, arr) =>
       arr.findIndex(x => Math.abs(x.lat - j.lat) < 0.01 && Math.abs(x.lon - j.lon) < 0.01) === i
     );
 
-    // Fetch stations in parallel
     const results = await Promise.all(uniqueJobs.map(j => fetchStations(j.lat, j.lon)));
 
-    // Deduplicate stations by place ID
     const seen = new Set();
     allStations = results.flat().filter(s => {
       if (!s.id || seen.has(s.id)) return false;
@@ -346,9 +309,8 @@ function formatPrice(money) {
     });
     map.fitBounds(bounds, { padding: 80, maxZoom: 12 });
 
-    const withPrice = allStations.filter(s => s.fuelOptions?.fuelPrices?.length > 0).length;
     document.getElementById('subtitle').textContent =
-      `${allStations.length} stations near ${jobs.length} site${jobs.length !== 1 ? 's' : ''} — ${withPrice} with live prices`;
+      `${allStations.length} stations near ${jobs.length} job site${jobs.length !== 1 ? 's' : ''}`;
 
     document.getElementById('loading').style.display = 'none';
   });
